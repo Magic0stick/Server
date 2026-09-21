@@ -1,4 +1,4 @@
-node_modules/
+Nothing needs to be added to .gitignore for this change list. The only file added is `install_stack.sh`, which appears to be a shell script source file and should not be ignored.node_modules/
 .next/
 dist/
 build/
