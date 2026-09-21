@@ -2,6 +2,11 @@
 
 # Скрипт установки MariaDB, Asterisk, Nextcloud и почтового сервера на Ubuntu с Docker
 # Все компоненты устанавливаются в последних стабильных версиях
+# 
+# Использование:
+#   1. Скопируйте этот репозиторий на сервер
+#   2. Запустите: sudo ./install_stack.sh
+#   3. Перейдите в /opt/docker-services и запустите: sudo ./start.sh
 
 set -e
 
@@ -9,6 +14,7 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Логирование
@@ -24,9 +30,13 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+log_step() {
+    echo -e "${BLUE}[STEP]${NC} $1"
+}
+
 # Проверка прав root
 if [ "$EUID" -ne 0 ]; then 
-    log_error "Пожалуйста, запустите скрипт от root (sudo ./install.sh)"
+    log_error "Пожалуйста, запустите скрипт от root (sudo ./install_stack.sh)"
     exit 1
 fi
 
@@ -44,8 +54,84 @@ fi
 
 log_info "Обнаружена Ubuntu $VERSION_ID"
 
+# Функция проверки команды
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Установка Docker если не установлен
+install_docker() {
+    if command_exists docker; then
+        log_info "Docker уже установлен: $(docker --version)"
+        return 0
+    fi
+    
+    log_step "Установка Docker..."
+    
+    # Обновление пакетов
+    apt-get update -qq
+    
+    # Установка зависимостей
+    apt-get install -y -qq \
+        ca-certificates \
+        curl \
+        gnupg \
+        lsb-release
+    
+    # Добавление GPG ключа Docker
+    mkdir -p /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    
+    # Добавление репозитория Docker
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+      $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    
+    # Установка Docker
+    apt-get update -qq
+    apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    
+    log_info "Docker успешно установлен: $(docker --version)"
+}
+
+# Установка Docker Compose если не установлен
+install_docker_compose() {
+    if command_exists docker compose; then
+        log_info "Docker Compose уже установлен: $(docker compose version)"
+        return 0
+    fi
+    
+    log_step "Установка Docker Compose..."
+    
+    # Пытаемся установить через apt
+    apt-get install -y -qq docker-compose-plugin || {
+        # Если не получилось, устанавливаем вручную
+        DESTDIR="/usr/local/lib/docker/cli-plugins"
+        mkdir -p $DESTDIR
+        curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o $DESTDIR/docker-compose
+        chmod +x $DESTDIR/docker-compose
+        ln -s $DESTDIR/docker-compose /usr/local/bin/docker-compose
+    }
+    
+    log_info "Docker Compose успешно установлен: $(docker compose version)"
+}
+
 # Создание директории для проекта
 PROJECT_DIR="/opt/docker-services"
+
+log_step "Начало установки стека сервисов"
+echo ""
+
+# Установка Docker и Docker Compose
+install_docker
+install_docker_compose
+
+# Добавление текущего пользователя в группу docker (если не root)
+if [ "$SUDO_USER" ]; then
+    log_info "Добавление пользователя $SUDO_USER в группу docker"
+    usermod -aG docker $SUDO_USER 2>/dev/null || true
+fi
+
 log_info "Создание директории проекта: $PROJECT_DIR"
 mkdir -p $PROJECT_DIR
 cd $PROJECT_DIR
@@ -451,11 +537,25 @@ docker exec asterisk asterisk -rx "core reload"
 EOF
 
 log_info "Все файлы созданы в $PROJECT_DIR"
-log_info "Следующие шаги:"
+
+echo ""
+echo "========================================="
+echo "Установка завершена!"
+echo "========================================="
+echo ""
+log_step "Следующие шаги:"
 echo ""
 echo "1. Перейдите в директорию: cd $PROJECT_DIR"
-echo "2. Отредактируйте файл .env и установите безопасные пароли"
-echo "3. Настройте SSL сертификаты для почты (для тестирования можно использовать самоподписанные)"
+echo "2. Отредактируйте файл .env и установите безопасные пароли:"
+echo "   nano .env"
+echo ""
+echo "3. (Опционально) Настройте SSL сертификаты для почты:"
+echo "   cd mail/ssl"
+echo "   ./generate-self-signed.sh  # для тестирования"
+echo "   cd ../.."
+echo ""
 echo "4. Запустите сервисы: sudo ./start.sh"
 echo ""
+echo "========================================="
 log_warn "Не забудьте изменить пароли и доменные имена перед использованием в продакшене!"
+echo ""
