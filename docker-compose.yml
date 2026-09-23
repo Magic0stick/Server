@@ -22,84 +22,30 @@ services:
     ports:
       - '80:80'       # HTTP трафик для prodick.ru
       - '443:443'     # HTTPS защищенный трафик (сайт + веб-лазейка)
-      - '81:81'       # Панель управления прокси и SSL-сертификатами
     volumes:
-      - ./data/npm/data:/data
-      - ./data/npm/letsencrypt:/etc/letsencrypt
+      - ./data/nginx/data:/data
+      - ./data/nginx/letsencrypt:/etc/letsencrypt
     networks:
       - migration_net
 
-  # --- 3. ОБЛАЧНОЕ ХРАНИЛИЩЕ NEXTCLOUD ---
-  nextcloud:
-    image: nextcloud:stable
-    container_name: migration_nextcloud
-    restart: always
-    ports:
-      - '8080:80'
-    depends_on:
-      - db
-    volumes:
-      - ./data/nextcloud/html:/var/www/html
-      - ./data/nextcloud/data:/var/www/html/data # Хранилище пользовательских файлов Nextcloud
-    environment:
-      - MYSQL_HOST=db
-      - MYSQL_DATABASE=nextcloud
-      - MYSQL_USER=root
-      - MYSQL_PASSWORD=F@il2511
-    networks:
-      - migration_net
-
-  # --- 4. ТЕЛЕФОНИЯ FREEPBX / ASTERISK ---
+  # --- 3. ТЕЛЕФОНИЯ: FREEPBX ---
   freepbx:
     image: tiredofit/freepbx:latest
     container_name: migration_freepbx
     restart: always
+    privileged: true          # <--- ТЕПЕРЬ ОН СТРОГО НА СВОЕМ МЕСТЕ (4 пробела)
     ports:
-      - '5060:5060/udp'               # SIP сигнализация
-      - '5160:5160/udp'               # SIP TLS
-      - '10000-10100:10000-10100/udp' # RTP порты для передачи голоса
-      - '8888:80'                     # Веб-интерфейс АТС
+      - '5060:5060/udp'       # SIP сигнализация
+      - '5160:5160/udp'       # Альтернативный SIP
+      - '10000-10050:10000-10050/udp' # RTP порты для голоса (минимальный диапазон)
     volumes:
-      - ./data/asterisk/etc:/etc/asterisk
-      - ./data/asterisk/var_log:/var/log/asterisk
-      - ./data/asterisk/spool:/var/spool/asterisk
-      - ./data/asterisk/modules:/usr/lib/asterisk/modules
+      - ./data/freepbx/data:/data
+      - ./data/freepbx/logs:/var/log
     environment:
       - DB_HOST=db
       - DB_NAME=asterisk
       - DB_USER=root
       - DB_PASS=F@il2511
-    network_mode: "host" # Критично во избежание проблем с NAT и слышимостью в АТС
-
-  # --- 5. ПОЧТОВЫЙ СЕРВЕР (Для ретро-миграций Postfix/Dovecot 2012 года) ---
-  mail:
-    image: tvial/docker-mailserver:latest
-    container_name: migration_mail
-    restart: always
-    ports:
-      - "25:25"       # SMTP
-      - "143:143"     # IMAP
-      - "587:587"     # Submission
-      - "993:993"     # Secure IMAP
-    volumes:
-      - ./data/mail/config:/tmp/docker-mailserver
-      - ./data/mail/maildir:/var/mail # Сюда импортируются старые ящики
-    environment:
-      - ENABLE_POSTFIX=1
-      - ENABLE_DOVECOT=1
-    networks:
-      - migration_net
-
-  # --- 6. ВЕБ-СЕРВЕР ДЛЯ СТАРЫХ САЙТОВ И СКРИПТОВ (prodick.ru) ---
-  web_legacy:
-    image: webdevops/php-nginx:7.4 # PHP 7.4 обеспечит всеядность для кода 2012 года
-    container_name: migration_web_legacy
-    restart: always
-    volumes:
-      - ./data/www/html:/app # Локальная папка с кодом твоего сайта prodick.ru
-      - ./data/www/old_configs:/opt/old_configs # Справочный архив старых конфигов с FreeBSD
-    environment:
-      - WEB_DOCUMENT_ROOT=/app
     networks:
       - migration_net
 
