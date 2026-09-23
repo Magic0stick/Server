@@ -1,0 +1,91 @@
+#!/bin/bash
+# setup_server.sh
+# Автоматический скрипт подготовки сервера Ubuntu 24.04 LTS к миграции
+
+set -e
+
+# Цвета для вывода
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${BLUE}=========================================================${NC}"
+echo -e "${BLUE}  Автоматическая подготовка хоста к миграции (Ubuntu)${NC}"
+echo -e "${BLUE}=========================================================${NC}"
+
+# 1. ОБНОВЛЕНИЕ СИСТЕМЫ И УСТАНОВКА ГИТА И СЕТЕВЫХ СЛУЖБ
+echo -e "${BLUE}[1/5] Обновление пакетов и установка Git, UFW...${NC}"
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git curl ufw jq openssl cifs-utils
+
+# 2. УСТАНОВКА DOCKER И DOCKER COMPOSE (Официальный метод)
+echo -e "${BLUE}[2/5] Установка Docker & Docker Compose...${NC}"
+if ! command -v docker >/dev/null 2>&1; then
+    curl -fsSL https://docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    rm -f get-docker.sh
+    # Добавляем текущего пользователя в группу docker, чтобы работать без sudo
+    sudo usermod -aG docker $USER
+    echo -e "${GREEN}✅ Docker успешно установлен.${NC}"
+else
+    echo -e "${YELLOW}⚠️ Docker уже установлен, пропускаем.${NC}"
+fi
+
+# 3. НАСТРОЙКА СКРЫТОГО ПОРТА SSH И БЕЗОПАСНОСТИ
+echo -e "${BLUE}[3/5] Перевод SSH на скрытый порт 4422...${NC}"
+# Проверяем, не изменен ли уже порт
+if ! grep -E "^Port 4422" /etc/ssh/sshd_config >/dev/null 2>&1; then
+    # Делаем резервную копию конфига SSH
+    sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+    # Меняем порт и запрещаем прямой вход под root
+    sudo sed -i 's/#Port 22/Port 4422/' /etc/ssh/sshd_config
+    sudo sed -i 's/Port 22/Port 4422/' /etc/ssh/sshd_config
+    sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
+    sudo sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+    
+    # Перезапускаем SSH службу
+    sudo systemctl restart ssh
+    echo -e "${GREEN}✅ SSH переведен на порт 4422. Доступ root напрямую закрыт.${NC}"
+else
+    echo -e "${YELLOW}⚠️ SSH уже настроен на порт 4422.${NC}"
+fi
+
+# 4. НАСТРОЙКА БРАНДМАУЭРА (UFW)
+echo -e "${BLUE}[4/5] Настройка брандмауэра UFW...${NC}"
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow 4422/tcp comment 'Скрытый SSH'
+sudo ufw allow 80/tcp comment 'HTTP (prodick.ru)'
+sudo ufw allow 443/tcp comment 'HTTPS (Сайт + Лазейка)'
+sudo ufw allow 81/tcp comment 'Nginx Proxy Manager Admin'
+sudo ufw allow 5060/udp comment 'SIP Asterisk'
+sudo ufw allow 5160/udp comment 'SIP TLS Asterisk'
+sudo ufw allow 10000:10100/udp comment 'RTP Voice Asterisk'
+sudo ufw allow 25/tcp comment 'SMTP Mail'
+sudo ufw allow 143/tcp comment 'IMAP Mail'
+sudo ufw allow 587/tcp comment 'Submission Mail'
+sudo ufw allow 993/tcp comment 'Secure IMAP'
+
+# Включаем UFW без интерактивного запроса
+echo "y" | sudo ufw enable
+echo -e "${GREEN}✅ Брандмауэр UFW успешно настроен и включен.${NC}"
+
+# 5. ПОДГОТОВКА СТРУКТУРЫ ДИРЕКТОРИЙ
+echo -e "${BLUE}[5/5] Создание структуры папок в /opt/migration...${NC}"
+sudo mkdir -p /opt/migration/tar_backups
+sudo mkdir -p /opt/migration/data/mysql
+sudo mkdir -p /opt/migration/data/npm
+sudo mkdir -p /opt/migration/data/nextcloud
+sudo mkdir -p /opt/migration/data/asterisk
+sudo mkdir -p /opt/migration/data/mail
+sudo mkdir -p /opt/migration/data/www/html
+
+# Выставляем права на папку проекта текущему пользователю
+sudo chown -R $USER:$USER /opt/migration
+
+echo -e "${GREEN}=========================================================${NC}"
+echo -e "${GREEN} 🎉 СЕРВЕР УСПЕШНО ПОДГОТОВЛЕН К МИГРАЦИИ!${NC}"
+echo -e "${YELLOW} ⚠️  ВАЖНО: Следующее подключение к серверу выполняйте по порту 4422!${NC}"
+echo -e "${YELLOW} Пример: ssh $USER@<IP_СЕРВЕРА> -p 4422${NC}"
+echo -e "${GREEN}=========================================================${NC}"
