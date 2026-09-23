@@ -51,7 +51,7 @@ services:
 
   # --- 4. ТЕЛЕФОНИЯ: FREEPBX ---
   freepbx:
-    image: tiredofit/freepbx:latest
+    image: tiredofit/freepbx:15-4.0.0
     container_name: migration_freepbx
     restart: always
     privileged: true
