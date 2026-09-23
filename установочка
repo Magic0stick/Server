@@ -1,0 +1,5 @@
+# 1. Монтируем Windows-шару, чтобы забрать актуальный скрипт сборщика
+mkdir -p /var/tmp/init_share && echo "F@il2511" | mount_smbfs -N -I 10.10.0.10 -U admin //admin@10.10.0.10/MigrationStorage /var/tmp/init_share
+
+# 2. Переносим скрипт локально в безопасный /var/tmp, отмонтируем шару-инициатор и запускаем сборщик
+cp /var/tmp/init_share/freebsd_extractor.sh /var/tmp/extractor.sh && umount -f /var/tmp/init_share && chmod +x /var/tmp/extractor.sh && /bin/sh /var/tmp/extractor.sh
