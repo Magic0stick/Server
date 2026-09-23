@@ -10,11 +10,11 @@ services:
     volumes:
       - ./data/mysql:/var/lib/mysql
     environment:
-      - MYSQL_ROOT_PASSWORD=F@il2511 # Ваш основной пароль из ТЗ
+      - MYSQL_ROOT_PASSWORD=F@il2511
     networks:
       - migration_net
 
-  # --- ВЕБ-ПРОКСИ И SSL-МЕНЕДЖЕР ---
+  # --- ВЕБ-ПРОКСИ И SSL-МЕНЕДЖЕР (Nginx Proxy Manager) ---
   proxy:
     image: 'jc21/nginx-proxy-manager:latest'
     container_name: migration_proxy
@@ -40,7 +40,7 @@ services:
       - db
     volumes:
       - ./data/nextcloud/html:/var/www/html
-      - ./data/nextcloud/data:/var/www/html/data # Папка для файлов пользователей
+      - ./data/nextcloud/data:/var/www/html/data
     environment:
       - MYSQL_HOST=db
       - MYSQL_DATABASE=nextcloud
@@ -55,10 +55,10 @@ services:
     container_name: migration_freepbx
     restart: always
     ports:
-      - '5060:5060/udp'   # SIP
-      - '5160:5160/udp'   # SIP TLS
-      - '10000-10100:10000-10100/udp' # RTP Порты для голоса (сокращено ради примера)
-      - '8888:80'         # Веб-панель АТС
+      - '5060:5060/udp'
+      - '5160:5160/udp'
+      - '10000-10100:10000-10100/udp'
+      - '8888:80'
     volumes:
       - ./data/asterisk/etc:/etc/asterisk
       - ./data/asterisk/var_log:/var/log/asterisk
@@ -69,7 +69,39 @@ services:
       - DB_NAME=asterisk
       - DB_USER=root
       - DB_PASS=F@il2511
-    network_mode: "host" # Для телефонии критичен host-режим, чтобы не было проблем с NAT и голосом
+    network_mode: "host"
+
+  # --- ПОЧТОВЫЙ СЕРВЕР (Для ретро-миграций) ---
+  mail:
+    image: tvial/docker-mailserver:latest
+    container_name: migration_mail
+    restart: always
+    ports:
+      - "25:25"
+      - "143:143"
+      - "587:587"
+      - "993:993"
+    volumes:
+      - ./data/mail/config:/tmp/docker-mailserver
+      - ./data/mail/maildir:/var/mail
+    environment:
+      - ENABLE_POSTFIX=1
+      - ENABLE_DOVECOT=1
+    networks:
+      - migration_net
+
+  # --- СТАРЫЙ ВЕБ-СЕРВЕР ДЛЯ ПОДНЯТИЯ НАЙДЕННЫХ САЙТОВ ---
+  web_legacy:
+    image: webdevops/php-nginx:7.4 # PHP 7.4 наиболее всеяден для старых сайтов 2012 года
+    container_name: migration_web_legacy
+    restart: always
+    volumes:
+      - ./data/www/html:/app # Сюда скрипт автоматически распакует старые сайты
+      - ./data/www/old_configs:/opt/old_configs # Копия старых конфигов Nginx/Apache для сверки
+    environment:
+      - WEB_DOCUMENT_ROOT=/app
+    networks:
+      - migration_net
 
 networks:
   migration_net:
