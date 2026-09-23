@@ -1,0 +1,3 @@
+curl -fsSL https://githubusercontent.com -o setup_server.sh 2>/dev/null || nano setup_server.sh
+# (Если создали через nano — вставьте код выше, сохраните Ctrl+O, закройте Ctrl+X)
+chmod +x setup_server.sh && ./setup_server.sh
