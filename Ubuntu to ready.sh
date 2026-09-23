@@ -1,6 +1,6 @@
 #!/bin/bash
 # deploy_all.sh (установочка)
-# Запускается автоматически после клонирования репозитория Magic0stick/Server
+# Финальная версия: автоматизация настройки ОС, сети, Docker и сшивания бэкапов FreeBSD
 
 set -e
 
@@ -38,11 +38,15 @@ else
     echo -e "${YELLOW}⚠️ Порт SSH уже изменен на 4422, пропускаем.${NC}"
 fi
 
-# 3. НАСТРОЙКА UFW БРАНДМАУЭРА
+# 3. НАСТРОЙКА UFW БРАНДМАУЭРА (Исправлен риск блокировки текущей сессии)
 echo -e "${BLUE}[3/5] Изоляция портов через брандмауэр UFW...${NC}"
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
-sudo ufw allow 4422/tcp comment 'Скрытый SSH'
+
+# ИСПРАВЛЕНИЕ: Открываем и старый порт 22, и новый порт 4422 до активации UFW, чтобы не потерять связь!
+sudo ufw allow 22/tcp comment 'Временный SSH для текущей сессии'
+sudo ufw allow 4422/tcp comment 'Скрытый постоянный SSH'
+
 sudo ufw allow 80/tcp comment 'HTTP (prodick.ru)'
 sudo ufw allow 443/tcp comment 'HTTPS (Сайт + Лазейка)'
 sudo ufw allow 81/tcp comment 'Nginx Proxy Manager Admin'
@@ -53,14 +57,18 @@ sudo ufw allow 25/tcp comment 'SMTP Mail'
 sudo ufw allow 143/tcp comment 'IMAP Mail'
 sudo ufw allow 587/tcp comment 'Submission Mail'
 sudo ufw allow 993/tcp comment 'Secure IMAP'
+
 echo "y" | sudo ufw enable
-echo -e "${GREEN}✅ Брандмауэр UFW успешно запущен.${NC}"
+echo -e "${GREEN}✅ Брандмауэр UFW успешно запущен. Связь с текущей сессией сохранена.${NC}"
 
 # 4. УСТАНОВКА DOCKER И DOCKER COMPOSE
 echo -e "${BLUE}[4/5] Инсталляция компонентов Docker...${NC}"
 if ! command -v docker >/dev/null 2>&1; then
-    curl -fsSL https://docker.com -o get-docker.sh
+    # ИСПРАВЛЕНИЕ: Используем корректный официальный URL скрипта установки
+    curl -fsSL https://get.docker.com -o get-docker.sh
     sudo sh get-docker.sh && rm -f get-docker.sh
+    
+    # Добавляем пользователя в группу
     sudo usermod -aG docker $USER
     echo -e "${GREEN}✅ Docker и плагин Compose успешно установлены.${NC}"
 else
@@ -82,8 +90,9 @@ sudo mkdir -p "$PROJECT_DIR"/data/www/html
 sudo mkdir -p "$PROJECT_DIR"/data/www/old_configs
 sudo chown -R $USER:$USER "$PROJECT_DIR"
 
-# 6. ЗАПУСК КОМПОЗА ИЗ ВАШЕГО ГИТА
+# 6. ЗАПУСК КОМПОЗА И АВТОМАТИЧЕСКОЕ СШИВАНИЕ
 echo -e "${BLUE}Запуск контейнеров Docker из репозиторного docker-compose.yml...${NC}"
+# ИСПРАВЛЕНИЕ: Вызываем docker compose через sudo, так как группа применится только после релогина
 sudo docker compose up -d
 
 echo -e "${YELLOW}Ожидание инициализации MariaDB (10 секунд)...${NC}"
@@ -96,7 +105,8 @@ if [ -z "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]; then
     echo -e "${CYAN}cd /opt/migration && chmod +x restore_infrastructure.sh && ./restore_infrastructure.sh${NC}"
     echo -e "${GREEN}=========================================================${NC}"
     echo -e "${GREEN} 🎉 ОС ПОДГОТОВЛЕНА, КОНТЕЙНЕРЫ ЗАПУЩЕНЫ!${NC}"
-    echo -e "${YELLOW} Подключайтесь к серверу по порту: ssh $USER@\$(hostname -I | awk '{print \$1}') -p 4422${NC}"
+    echo -e "${YELLOW} Новое подключение к серверу выполняйте по порту 4422:${NC}"
+    echo -e "${CYAN} ssh $USER@\$(hostname -I | awk '{print \$1}') -p 4422${NC}"
     echo -e "${GREEN}=========================================================${NC}"
     exit 0
 fi
