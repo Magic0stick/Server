@@ -1,6 +1,6 @@
 #!/bin/bash
 # deploy_all.sh (установочка)
-# Финальная версия: автоматизация настройки ОС, сети, Docker и сшивания бэкапов FreeBSD
+# Финальная отлаженная версия: автоматизация настройки ОС, сети, Docker и сшивания бэкапов FreeBSD
 
 set -e
 
@@ -8,11 +8,12 @@ PROJECT_DIR="/opt/migration"
 BACKUP_DIR="$PROJECT_DIR/tar_backups"
 EXTRACT_TMP="/var/tmp/restore_dump_$$"
 
-# Цвета для вывода в консоль
+# ИНИЦИАЛИЗАЦИЯ ЦВЕТОВ
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${BLUE}=========================================================${NC}"
@@ -38,12 +39,12 @@ else
     echo -e "${YELLOW}⚠️ Порт SSH уже изменен на 4422, пропускаем.${NC}"
 fi
 
-# 3. НАСТРОЙКА UFW БРАНДМАУЭРА (Исправлен риск блокировки текущей сессии)
+# 3. НАСТРОЙКА UFW БРАНДМАУЭРА (Защита сессии)
 echo -e "${BLUE}[3/5] Изоляция портов через брандмауэр UFW...${NC}"
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 
-# ИСПРАВЛЕНИЕ: Открываем и старый порт 22, и новый порт 4422 до активации UFW, чтобы не потерять связь!
+# Открываем и старый порт 22, и новый порт 4422 до активации UFW, чтобы не потерять связь
 sudo ufw allow 22/tcp comment 'Временный SSH для текущей сессии'
 sudo ufw allow 4422/tcp comment 'Скрытый постоянный SSH'
 
@@ -64,7 +65,7 @@ echo -e "${GREEN}✅ Брандмауэр UFW успешно запущен. С�
 # 4. УСТАНОВКА DOCKER И DOCKER COMPOSE
 echo -e "${BLUE}[4/5] Инсталляция компонентов Docker...${NC}"
 if ! command -v docker >/dev/null 2>&1; then
-    # ИСПРАВЛЕНИЕ: Используем корректный официальный URL скрипта установки
+    # ИСПРАВЛЕНО: Теперь используется исключительно официальный рабочий скрипт установки Docker
     curl -fsSL https://get.docker.com -o get-docker.sh
     sudo sh get-docker.sh && rm -f get-docker.sh
     
@@ -91,12 +92,26 @@ sudo mkdir -p "$PROJECT_DIR"/data/www/old_configs
 sudo chown -R $USER:$USER "$PROJECT_DIR"
 
 # 6. ЗАПУСК КОМПОЗА И АВТОМАТИЧЕСКОЕ СШИВАНИЕ
+# Жестко фиксируем контекст папки, в которой лежит compose файл
+cd "$PROJECT_DIR"
+
 echo -e "${BLUE}Запуск контейнеров Docker из репозиторного docker-compose.yml...${NC}"
-# ИСПРАВЛЕНИЕ: Вызываем docker compose через sudo, так как группа применится только после релогина
 sudo docker compose up -d
 
-echo -e "${YELLOW}Ожидание инициализации MariaDB (10 секунд)...${NC}"
-sleep 10
+# Пуленепробиваемое динамическое ожидание готовности MySQL (вместо sleep 10)
+echo -e "${YELLOW}Ожидание полной готовности СУБД MariaDB к приему соединений...${NC}"
+for i in $(seq 1 60); do
+    # Пытаемся выполнить пинг внутренней структуры mysql внутри контейнера
+    if sudo docker exec migration_mariadb mysqladmin ping -u root -pF@il2511 --silent >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ База данных успешно инициализирована и готова к импорту на $i секунде.${NC}"
+        break
+    fi
+    if [ "$i" -eq 60 ]; then
+        echo -e "${RED}❌ Фатальная ошибка: MariaDB не запустилась за 60 секунд. Проверьте логи: docker logs migration_mariadb${NC}"
+        exit 1
+    fi
+    sleep 1
+done
 
 # Проверка наличия архивов в папке перед запуском восстановления
 if [ -z "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]; then
@@ -106,7 +121,7 @@ if [ -z "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]; then
     echo -e "${GREEN}=========================================================${NC}"
     echo -e "${GREEN} 🎉 ОС ПОДГОТОВЛЕНА, КОНТЕЙНЕРЫ ЗАПУЩЕНЫ!${NC}"
     echo -e "${YELLOW} Новое подключение к серверу выполняйте по порту 4422:${NC}"
-    echo -e "${CYAN} ssh $USER@\$(hostname -I | awk '{print \$1}') -p 4422${NC}"
+    echo -e "${CYAN}ssh $USER@\$(hostname -I | awk '{print \$1}') -p 4422${NC}"
     echo -e "${GREEN}=========================================================${NC}"
     exit 0
 fi
