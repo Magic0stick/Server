@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # --- СУБД: ОБЩАЯ БАЗА ДАННЫХ ДЛЯ ВСЕХ СЕРВИСОВ ---
+  # --- 1. СУБД: ОБЩАЯ БАЗА ДАННЫХ ДЛЯ ВСЕХ СЕРВИСОВ ---
   db:
     image: mariadb:10.11
     container_name: migration_mariadb
@@ -10,26 +10,26 @@ services:
     volumes:
       - ./data/mysql:/var/lib/mysql
     environment:
-      - MYSQL_ROOT_PASSWORD=F@il2511
+      - MYSQL_ROOT_PASSWORD=F@il2511 # Твой основной пароль СУБД из ТЗ
     networks:
       - migration_net
 
-  # --- ВЕБ-ПРОКСИ И SSL-МЕНЕДЖЕР (Nginx Proxy Manager) ---
+  # --- 2. ВЕБ-ПРОКСИ И SSL-МЕНЕДЖЕР (Nginx Proxy Manager) ---
   proxy:
     image: 'jc21/nginx-proxy-manager:latest'
     container_name: migration_proxy
     restart: always
     ports:
-      - '80:80'
-      - '443:443'
-      - '81:81' # Админка прокси
+      - '80:80'       # HTTP трафик для prodick.ru
+      - '443:443'     # HTTPS защищенный трафик (сайт + веб-лазейка)
+      - '81:81'       # Панель управления прокси и SSL-сертификатами
     volumes:
       - ./data/npm/data:/data
       - ./data/npm/letsencrypt:/etc/letsencrypt
     networks:
       - migration_net
 
-  # --- ОБЛАЧНОЕ ХРАНИЛИЩЕ NEXTCLOUD ---
+  # --- 3. ОБЛАЧНОЕ ХРАНИЛИЩЕ NEXTCLOUD ---
   nextcloud:
     image: nextcloud:stable
     container_name: migration_nextcloud
@@ -40,7 +40,7 @@ services:
       - db
     volumes:
       - ./data/nextcloud/html:/var/www/html
-      - ./data/nextcloud/data:/var/www/html/data
+      - ./data/nextcloud/data:/var/www/html/data # Хранилище пользовательских файлов Nextcloud
     environment:
       - MYSQL_HOST=db
       - MYSQL_DATABASE=nextcloud
@@ -49,16 +49,16 @@ services:
     networks:
       - migration_net
 
-  # --- ТЕЛЕФОНИЯ FREEPBX / ASTERISK ---
+  # --- 4. ТЕЛЕФОНИЯ FREEPBX / ASTERISK ---
   freepbx:
     image: tiredofit/freepbx:latest
     container_name: migration_freepbx
     restart: always
     ports:
-      - '5060:5060/udp'
-      - '5160:5160/udp'
-      - '10000-10100:10000-10100/udp'
-      - '8888:80'
+      - '5060:5060/udp'               # SIP сигнализация
+      - '5160:5160/udp'               # SIP TLS
+      - '10000-10100:10000-10100/udp' # RTP порты для передачи голоса
+      - '8888:80'                     # Веб-интерфейс АТС
     volumes:
       - ./data/asterisk/etc:/etc/asterisk
       - ./data/asterisk/var_log:/var/log/asterisk
@@ -69,37 +69,51 @@ services:
       - DB_NAME=asterisk
       - DB_USER=root
       - DB_PASS=F@il2511
-    network_mode: "host"
+    network_mode: "host" # Критично во избежание проблем с NAT и слышимостью в АТС
 
-  # --- ПОЧТОВЫЙ СЕРВЕР (Для ретро-миграций) ---
+  # --- 5. ПОЧТОВЫЙ СЕРВЕР (Для ретро-миграций Postfix/Dovecot 2012 года) ---
   mail:
     image: tvial/docker-mailserver:latest
     container_name: migration_mail
     restart: always
     ports:
-      - "25:25"
-      - "143:143"
-      - "587:587"
-      - "993:993"
+      - "25:25"       # SMTP
+      - "143:143"     # IMAP
+      - "587:587"     # Submission
+      - "993:993"     # Secure IMAP
     volumes:
       - ./data/mail/config:/tmp/docker-mailserver
-      - ./data/mail/maildir:/var/mail
+      - ./data/mail/maildir:/var/mail # Сюда импортируются старые ящики
     environment:
       - ENABLE_POSTFIX=1
       - ENABLE_DOVECOT=1
     networks:
       - migration_net
 
-  # --- СТАРЫЙ ВЕБ-СЕРВЕР ДЛЯ ПОДНЯТИЯ НАЙДЕННЫХ САЙТОВ ---
+  # --- 6. ВЕБ-СЕРВЕР ДЛЯ СТАРЫХ САЙТОВ И СКРИПТОВ (prodick.ru) ---
   web_legacy:
-    image: webdevops/php-nginx:7.4 # PHP 7.4 наиболее всеяден для старых сайтов 2012 года
+    image: webdevops/php-nginx:7.4 # PHP 7.4 обеспечит всеядность для кода 2012 года
     container_name: migration_web_legacy
     restart: always
     volumes:
-      - ./data/www/html:/app # Сюда скрипт автоматически распакует старые сайты
-      - ./data/www/old_configs:/opt/old_configs # Копия старых конфигов Nginx/Apache для сверки
+      - ./data/www/html:/app # Локальная папка с кодом твоего сайта prodick.ru
+      - ./data/www/old_configs:/opt/old_configs # Справочный архив старых конфигов с FreeBSD
     environment:
       - WEB_DOCUMENT_ROOT=/app
+    networks:
+      - migration_net
+
+  # --- 7. СЛУЖЕБНАЯ ЛАЗЕЙКА: СКРЫТЫЙ ВЕБ-ТЕРМИНАЛ (SSH через браузер) ---
+  wetty:
+    image: wettyoss/wetty:latest
+    container_name: migration_terminal
+    restart: always
+    ports:
+      - '3000:3000' # Спрячем за прокси Nginx Proxy Manager
+    environment:
+      - SSHHOST=10.10.0.10 # Локальный IP твоей новой Ubuntu
+      - SSHPORT=4422       # Измененный скрытый порт SSH хоста Ubuntu (вместо дефолтного 22)
+      - BASE=/terminal/   # Секретный URL (доступ по адресу: prodick.ru/terminal/)
     networks:
       - migration_net
 
