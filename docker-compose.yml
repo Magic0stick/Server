@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # --- СУБД: ОБЩАЯ БАЗА ДАННЫХ ДЛЯ ВСЕХ СЕРВИСОВ ---
+  db:
+    image: mariadb:10.11
+    container_name: migration_mariadb
+    restart: always
+    command: --transaction-isolation=READ-COMMITTED --log-bin=ROW
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=F@il2511 # Ваш основной пароль из ТЗ
+    networks:
+      - migration_net
+
+  # --- ВЕБ-ПРОКСИ И SSL-МЕНЕДЖЕР ---
+  proxy:
+    image: 'jc21/nginx-proxy-manager:latest'
+    container_name: migration_proxy
+    restart: always
+    ports:
+      - '80:80'
+      - '443:443'
+      - '81:81' # Админка прокси
+    volumes:
+      - ./data/npm/data:/data
+      - ./data/npm/letsencrypt:/etc/letsencrypt
+    networks:
+      - migration_net
+
+  # --- ОБЛАЧНОЕ ХРАНИЛИЩЕ NEXTCLOUD ---
+  nextcloud:
+    image: nextcloud:stable
+    container_name: migration_nextcloud
+    restart: always
+    ports:
+      - '8080:80'
+    depends_on:
+      - db
+    volumes:
+      - ./data/nextcloud/html:/var/www/html
+      - ./data/nextcloud/data:/var/www/html/data # Папка для файлов пользователей
+    environment:
+      - MYSQL_HOST=db
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=F@il2511
+    networks:
+      - migration_net
+
+  # --- ТЕЛЕФОНИЯ FREEPBX / ASTERISK ---
+  freepbx:
+    image: tiredofit/freepbx:latest
+    container_name: migration_freepbx
+    restart: always
+    ports:
+      - '5060:5060/udp'   # SIP
+      - '5160:5160/udp'   # SIP TLS
+      - '10000-10100:10000-10100/udp' # RTP Порты для голоса (сокращено ради примера)
+      - '8888:80'         # Веб-панель АТС
+    volumes:
+      - ./data/asterisk/etc:/etc/asterisk
+      - ./data/asterisk/var_log:/var/log/asterisk
+      - ./data/asterisk/spool:/var/spool/asterisk
+      - ./data/asterisk/modules:/usr/lib/asterisk/modules
+    environment:
+      - DB_HOST=db
+      - DB_NAME=asterisk
+      - DB_USER=root
+      - DB_PASS=F@il2511
+    network_mode: "host" # Для телефонии критичен host-режим, чтобы не было проблем с NAT и голосом
+
+networks:
+  migration_net:
+    driver: bridge
