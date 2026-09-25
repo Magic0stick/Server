@@ -1,0 +1,15 @@
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    eno1:
+      dhcp4: false
+      addresses:
+        - 10.10.0.79/24
+      nameservers:
+        addresses:
+          - 10.10.0.1
+          - 8.8.8.8
+      routes:
+        - to: default
+          via: 10.10.0.1
